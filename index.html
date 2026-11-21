@@ -2,248 +2,366 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>生態沙盒數值模擬器</title>
   <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css" />
   <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+  <style>
+    body {
+      background-color: #121212;
+      color: #ffffff;
+      font-family: "Microsoft JhengHei", "PingFang TC", sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 {
+      margin: 0 0 12px 0;
+      font-size: 1.6rem;
+      letter-spacing: 1px;
+    }
+    #loading {
+      background-color: #1e293b;
+      color: #38bdf8;
+      padding: 12px 20px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      border: 1px solid #0284c7;
+      font-size: 0.95rem;
+    }
+    #plot-area {
+      width: 100%;
+      max-width: 1200px;
+      min-height: 450px;
+      background-color: #000000;
+      border-radius: 10px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    }
+    #plot-area img {
+      max-width: 100%;
+      height: auto;
+    }
+    .controls-container {
+      width: 100%;
+      max-width: 1200px;
+      margin-top: 18px;
+      background-color: #1e1e1e;
+      padding: 20px;
+      border-radius: 10px;
+      box-sizing: border-box;
+      display: grid;
+      grid-template-columns: 220px 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 850px) {
+      .controls-container {
+        grid-template-columns: 1fr;
+      }
+    }
+    .panel-box {
+      background-color: #262626;
+      padding: 14px 16px;
+      border-radius: 8px;
+    }
+    .panel-title {
+      font-size: 0.95rem;
+      color: #4CAF50;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .radio-group label {
+      display: block;
+      margin-bottom: 10px;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    .slider-item {
+      margin-bottom: 12px;
+    }
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.88rem;
+      margin-bottom: 4px;
+      color: #e0e0e0;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #4CAF50;
+      cursor: pointer;
+    }
+    #btn-reset {
+      margin-top: 8px;
+      width: 100%;
+      padding: 10px;
+      background-color: #333333;
+      color: white;
+      border: 1px solid #555555;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: background-color 0.2s;
+    }
+    #btn-reset:hover {
+      background-color: #4CAF50;
+      border-color: #4CAF50;
+    }
+  </style>
 </head>
 <body>
-  <script type="py" config='{"packages": ["numpy","matplotlib.pyplot"]}'>
 
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from matplotlib.widgets import Slider, Button, RadioButtons
-    from scipy.integrate import solve_ivp
+  <h1>生態沙盒數值模擬器</h1>
+  <div id="loading">⏳ 正在載入 Python 數值計算引擎（NumPy / SciPy / Matplotlib），首次開啟約需 5～10 秒...</div>
 
-    # 設定中文字型（微軟正黑體）與負號正常顯示
-    plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Arial']
-    plt.rcParams['axes.unicode_minus'] = False
-    plt.style.use('dark_background')
-    
-    class EcologicalSandbox:
-        def __init__(self):
-            # 初始參數設定
-            self.params = {
-                # 經典 LV
-                'alpha': 0.8, 'beta': 0.15, 'gamma': 0.6, 'delta': 0.08,
-                # Holling II 型
-                'r': 1.0, 'K': 100.0, 'a': 0.08, 'h': 0.05, 'e': 0.6, 'd': 0.3,
-                # 三物種加成參數
-                'a2': 0.05, 'h2': 0.05, 'e2': 0.5, 'd2': 0.2,
-                # 初始族群與時間
-                'x0': 40.0, 'y0': 10.0, 'z0': 5.0, 't_max': 100.0
-            }
-            self.current_model = '經典 Lotka-Volterra'
-            
-            # 初始化圖表架構
-            self.fig = plt.figure(figsize=(15, 8))
-            self.fig.suptitle("生態沙盒數值模擬器", fontsize=16, color='white', fontweight='bold')
-            
-            # 定義繪圖區域
-            self.ax_time = self.fig.add_subplot(121)
-            self.ax_phase = self.fig.add_subplot(122)
-            
-            plt.subplots_adjust(left=0.08, bottom=0.35, right=0.95, top=0.9, wspace=0.25)
-            
-            # 建立 UI 控制面板
-            self._setup_widgets()
-            
-            # 繪製初始圖形
-            self.update(None)
-    
-        def _system_equations(self, t, state):
-            if self.current_model == '經典 Lotka-Volterra':
-                x, y = state[0], state[1]
-                a, b, c, d = self.params['alpha'], self.params['beta'], self.params['gamma'], self.params['delta']
-                dxdt = a * x - b * x * y
-                dydt = d * x * y - c * y
-                return [dxdt, dydt]
-    
-            elif self.current_model == 'Holling II 型':
-                x, y = state[0], state[1]
-                r, K = self.params['r'], self.params['K']
-                a, h = self.params['a'], self.params['h']
-                e, d = self.params['e'], self.params['d']
-                
-                denom = 1.0 + a * h * x
-                dxdt = r * x * (1.0 - x / K) - (a * x * y) / denom
-                dydt = (e * a * x * y) / denom - d * y
-                return [dxdt, dydt]
-    
-            elif self.current_model == '三物種食物鏈':
-                x, y, z = state[0], state[1], state[2]
-                r, K = self.params['r'], self.params['K']
-                a1, h1, e1, d1 = self.params['a'], self.params['h'], self.params['e'], self.params['d']
-                a2, h2, e2, d2 = self.params['a2'], self.params['h2'], self.params['e2'], self.params['d2']
-                
-                den1 = 1.0 + a1 * h1 * x
-                den2 = 1.0 + a2 * h2 * y
-                
-                dxdt = r * x * (1.0 - x / K) - (a1 * x * y) / den1
-                dydt = (e1 * a1 * x * y) / den1 - d1 * y - (a2 * y * z) / den2
-                dzdt = (e2 * a2 * y * z) / den2 - d2 * z
-                return [dxdt, dydt, dzdt]
-    
-        def _setup_widgets(self):
-            # 模型選擇 Radio Button
-            ax_radio = plt.axes([0.08, 0.05, 0.18, 0.22], facecolor='#1e1e1e')
-            self.radio = RadioButtons(ax_radio, ('經典 Lotka-Volterra', 'Holling II 型', '三物種食物鏈'), active=0)
-            self.radio.on_clicked(self._on_model_change)
-            
-            # 滑桿清單
-            slider_kw = {'facecolor': '#4CAF50'}
-            
-            self.ax_slider_x0 = plt.axes([0.33, 0.22, 0.22, 0.025])
-            self.slider_x0 = Slider(self.ax_slider_x0, '獵物初值 $x_0$', 1.0, 150.0, valinit=self.params['x0'], **slider_kw)
-            
-            self.ax_slider_y0 = plt.axes([0.33, 0.17, 0.22, 0.025])
-            self.slider_y0 = Slider(self.ax_slider_y0, '捕食者初值 $y_0$', 0.1, 80.0, valinit=self.params['y0'], **slider_kw)
-            
-            self.ax_slider_p1 = plt.axes([0.33, 0.12, 0.22, 0.025])
-            self.slider_p1 = Slider(self.ax_slider_p1, '增長率 $r / \\alpha$', 0.1, 3.0, valinit=self.params['alpha'], **slider_kw)
-            
-            self.ax_slider_p2 = plt.axes([0.33, 0.07, 0.22, 0.025])
-            self.slider_p2 = Slider(self.ax_slider_p2, '捕食率 $a / \\beta$', 0.01, 0.5, valinit=self.params['beta'], **slider_kw)
-    
-            self.ax_slider_K = plt.axes([0.68, 0.22, 0.22, 0.025])
-            self.slider_K = Slider(self.ax_slider_K, '環境容量 $K$', 20.0, 300.0, valinit=self.params['K'], **slider_kw)
-            
-            self.ax_slider_h = plt.axes([0.68, 0.17, 0.22, 0.025])
-            self.slider_h = Slider(self.ax_slider_h, '處置時間 $h$', 0.0, 0.2, valinit=self.params['h'], **slider_kw)
-            
-            self.ax_slider_z0 = plt.axes([0.68, 0.12, 0.22, 0.025])
-            self.slider_z0 = Slider(self.ax_slider_z0, '頂級捕食者 $z_0$', 0.0, 30.0, valinit=self.params['z0'], **slider_kw)
-            
-            # 註冊事件監聽
-            for slider in [self.slider_x0, self.slider_y0, self.slider_p1, self.slider_p2, self.slider_K, self.slider_h, self.slider_z0]:
-                slider.on_changed(self.update)
-    
-            # 重設按鈕
-            ax_reset = plt.axes([0.68, 0.05, 0.10, 0.04])
-            self.btn_reset = Button(ax_reset, '重設參數', color='#333333', hovercolor='#555555')
-            self.btn_reset.on_clicked(self.reset)
-    
-        def _on_model_change(self, label):
-            self.current_model = label
-            self.update(None)
-    
-        def reset(self, event):
-            self.slider_x0.reset()
-            self.slider_y0.reset()
-            self.slider_z0.reset()
-            self.slider_p1.reset()
-            self.slider_p2.reset()
-            self.slider_K.reset()
-            self.slider_h.reset()
-            self.update(None)
-    
-        def update(self, val):
-            # 讀取滑桿數值
-            self.params['x0'] = self.slider_x0.val
-            self.params['y0'] = self.slider_y0.val
-            self.params['z0'] = self.slider_z0.val
-            self.params['alpha'] = self.slider_p1.val
-            self.params['r'] = self.slider_p1.val
-            self.params['beta'] = self.slider_p2.val
-            self.params['a'] = self.slider_p2.val
-            self.params['K'] = self.slider_K.val
-            self.params['h'] = self.slider_h.val
-            
-            # 數值積分求解
-            t_span = (0, self.params['t_max'])
-            t_eval = np.linspace(0, self.params['t_max'], 2000)
-            
-            if self.current_model == '三物種食物鏈':
-                y0_vec = [self.params['x0'], self.params['y0'], self.params['z0']]
-            else:
-                y0_vec = [self.params['x0'], self.params['y0']]
-                
-            sol = solve_ivp(
-                self._system_equations, 
-                t_span, 
-                y0_vec, 
-                t_eval=t_eval, 
-                method='RK45', 
-                max_step=0.2
-            )
-            
-            # 清空舊軸
-            self.ax_time.clear()
-            self.ax_phase.clear()
-            
-            if not sol.success:
-                self.ax_time.text(0.5, 0.5, "數值積分失敗 (系統發散)", ha='center', color='red')
-                self.fig.canvas.draw_idle()
-                return
-                
-            t = sol.t
-            x = sol.y[0]
-            y = sol.y[1]
-            
-            # 1. 繪製時間序列圖
-            self.ax_time.plot(t, x, label='獵物 ($x$)', color='#00E676', lw=1.8)
-            self.ax_time.plot(t, y, label='捕食者 ($y$)', color='#FF5252', lw=1.8)
-            if self.current_model == '三物種食物鏈':
-                z = sol.y[2]
-                self.ax_time.plot(t, z, label='頂級捕食者 ($z$)', color='#448AFF', lw=1.8)
-                
-            self.ax_time.set_title("時間序列動態 $N(t)$", fontsize=12, color='cyan')
-            self.ax_time.set_xlabel("時間 ($t$)", color='white')
-            self.ax_time.set_ylabel("族群密度", color='white')
-            self.ax_time.grid(True, linestyle='--', alpha=0.3)
-            self.ax_time.legend(loc='upper right')
-    
-            # 2. 繪製相平面圖與向量場
-            if self.current_model in ['經典 Lotka-Volterra', 'Holling II 型']:
-                max_x = max(np.max(x) * 1.2, 10)
-                max_y = max(np.max(y) * 1.2, 10)
-                
-                grid_x, grid_y = np.meshgrid(np.linspace(0.1, max_x, 25), np.linspace(0.1, max_y, 25))
-                
-                if self.current_model == '經典 Lotka-Volterra':
-                    U = self.params['alpha'] * grid_x - self.params['beta'] * grid_x * grid_y
-                    V = self.params['delta'] * grid_x * grid_y - self.params['gamma'] * grid_y
-                else:
-                    denom = 1.0 + self.params['a'] * self.params['h'] * grid_x
-                    U = self.params['r'] * grid_x * (1.0 - grid_x / self.params['K']) - (self.params['a'] * grid_x * grid_y) / denom
-                    V = (self.params['e'] * self.params['a'] * grid_x * grid_y) / denom - self.params['d'] * grid_y
-    
-                speed = np.sqrt(U**2 + V**2)
-                speed[speed == 0] = 1.0
-                
-                self.ax_phase.streamplot(grid_x, grid_y, U, V, color=np.log(speed + 1), cmap='cool', density=0.8, linewidth=0.6)
-                
-                self.ax_phase.plot(x, y, color='#FFEA00', lw=2.0, label='動態軌跡')
-                self.ax_phase.plot(x[0], y[0], 'go', markersize=8, label='起點 ($x_0, y_0$)')
-                self.ax_phase.plot(x[-1], y[-1], 'ro', markersize=8, label='終點')
-                
-                self.ax_phase.set_title(f"相平面圖 ($y$ vs $x$) - {self.current_model}", fontsize=12, color='cyan')
-                self.ax_phase.set_xlabel("獵物數量 ($x$)", color='white')
-                self.ax_phase.set_ylabel("捕食者數量 ($y$)", color='white')
-                self.ax_phase.set_xlim(0, max_x)
-                self.ax_phase.set_ylim(0, max_y)
-                self.ax_phase.grid(True, linestyle='--', alpha=0.3)
-                self.ax_phase.legend(loc='upper right')
-    
-            elif self.current_model == '三物種食物鏈':
-                z = sol.y[2]
+  <div id="plot-area"></div>
+
+  <div class="controls-container">
+    <div class="panel-box radio-group">
+      <div class="panel-title">選擇生態模型</div>
+      <label><input type="radio" name="model" value="經典 Lotka-Volterra" checked> 經典 Lotka-Volterra</label>
+      <label><input type="radio" name="model" value="Holling II 型"> Holling II 型</label>
+      <label><input type="radio" name="model" value="三物種食物鏈"> 三物種食物鏈</label>
+      <button id="btn-reset" type="button">重設參數</button>
+    </div>
+
+    <div class="panel-box">
+      <div class="panel-title">族群初值與基本率</div>
+      <div class="slider-item">
+        <div class="slider-header"><span>獵物初值 (x₀)</span><span id="val-x0">40.0</span></div>
+        <input type="range" id="slider-x0" min="1.0" max="150.0" step="0.5" value="40.0" oninput="document.getElementById('val-x0').innerText=parseFloat(this.value).toFixed(1)">
+      </div>
+      <div class="slider-item">
+        <div class="slider-header"><span>捕食者初值 (y₀)</span><span id="val-y0">10.0</span></div>
+        <input type="range" id="slider-y0" min="0.1" max="80.0" step="0.1" value="10.0" oninput="document.getElementById('val-y0').innerText=parseFloat(this.value).toFixed(1)">
+      </div>
+      <div class="slider-item">
+        <div class="slider-header"><span>增長率 (r / α)</span><span id="val-p1">0.80</span></div>
+        <input type="range" id="slider-p1" min="0.1" max="3.0" step="0.05" value="0.8" oninput="document.getElementById('val-p1').innerText=parseFloat(this.value).toFixed(2)">
+      </div>
+      <div class="slider-item">
+        <div class="slider-header"><span>捕食率 (a / β)</span><span id="val-p2">0.15</span></div>
+        <input type="range" id="slider-p2" min="0.01" max="0.5" step="0.01" value="0.15" oninput="document.getElementById('val-p2').innerText=parseFloat(this.value).toFixed(2)">
+      </div>
+    </div>
+
+    <div class="panel-box">
+      <div class="panel-title">環境與高階參數</div>
+      <div class="slider-item">
+        <div class="slider-header"><span>環境容量 (K)</span><span id="val-K">100.0</span></div>
+        <input type="range" id="slider-K" min="20.0" max="300.0" step="1.0" value="100.0" oninput="document.getElementById('val-K').innerText=parseFloat(this.value).toFixed(1)">
+      </div>
+      <div class="slider-item">
+        <div class="slider-header"><span>處置時間 (h)</span><span id="val-h">0.050</span></div>
+        <input type="range" id="slider-h" min="0.0" max="0.2" step="0.005" value="0.05" oninput="document.getElementById('val-h').innerText=parseFloat(this.value).toFixed(3)">
+      </div>
+      <div class="slider-item">
+        <div class="slider-header"><span>頂級捕食者 (z₀)</span><span id="val-z0">5.0</span></div>
+        <input type="range" id="slider-z0" min="0.0" max="30.0" step="0.5" value="5.0" oninput="document.getElementById('val-z0').innerText=parseFloat(this.value).toFixed(1)">
+      </div>
+    </div>
+  </div>
+
+  <script type="py" config='{"packages": ["numpy", "matplotlib", "scipy"]}'>
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
+from pyscript import display, document
+from pyodide.ffi import create_proxy
+
+plt.rcParams['axes.unicode_minus'] = False
+plt.style.use('dark_background')
+
+class EcologicalSandbox:
+    def __init__(self):
+        self.defaults = {
+            'alpha': 0.8, 'beta': 0.15, 'gamma': 0.6, 'delta': 0.08,
+            'r': 1.0, 'K': 100.0, 'a': 0.08, 'h': 0.05, 'e': 0.6, 'd': 0.3,
+            'a2': 0.05, 'h2': 0.05, 'e2': 0.5, 'd2': 0.2,
+            'x0': 40.0, 'y0': 10.0, 'z0': 5.0, 't_max': 100.0
+        }
+        self.params = self.defaults.copy()
+        self.current_model = '經典 Lotka-Volterra'
+
+        self.fig = plt.figure(figsize=(14, 5.5))
+        self.ax_time = self.fig.add_subplot(121)
+        self.ax_phase = self.fig.add_subplot(122)
+        plt.subplots_adjust(left=0.07, bottom=0.14, right=0.96, top=0.88, wspace=0.25)
+
+        self._bind_events()
+        self.update(None)
+        document.getElementById("loading").style.display = "none"
+
+    def _bind_events(self):
+        slider_ids = ["slider-x0", "slider-y0", "slider-p1", "slider-p2", "slider-K", "slider-h", "slider-z0"]
+        update_proxy = create_proxy(self.update)
+        for sid in slider_ids:
+            document.getElementById(sid).addEventListener("change", update_proxy)
+
+        model_proxy = create_proxy(self._on_model_change)
+        for radio in document.querySelectorAll('input[name="model"]'):
+            radio.addEventListener("change", model_proxy)
+
+        reset_proxy = create_proxy(self.reset)
+        document.getElementById("btn-reset").addEventListener("click", reset_proxy)
+
+    def _on_model_change(self, event):
+        self.current_model = event.target.value
+        self.update(None)
+
+    def reset(self, event):
+        self.params = self.defaults.copy()
+        reset_map = {
+            "slider-x0": ("val-x0", 40.0, "{:.1f}"),
+            "slider-y0": ("val-y0", 10.0, "{:.1f}"),
+            "slider-p1": ("val-p1", 0.8, "{:.2f}"),
+            "slider-p2": ("val-p2", 0.15, "{:.2f}"),
+            "slider-K":  ("val-K", 100.0, "{:.1f}"),
+            "slider-h":  ("val-h", 0.05, "{:.3f}"),
+            "slider-z0": ("val-z0", 5.0, "{:.1f}")
+        }
+        for sid, (vid, val, fmt) in reset_map.items():
+            document.getElementById(sid).value = str(val)
+            document.getElementById(vid).innerText = fmt.format(val)
+        self.update(None)
+
+    def _system_equations(self, t, state):
+        if self.current_model == '經典 Lotka-Volterra':
+            x, y = state[0], state[1]
+            a, b, c, d = self.params['alpha'], self.params['beta'], self.params['gamma'], self.params['delta']
+            return [a * x - b * x * y, d * x * y - c * y]
+
+        elif self.current_model == 'Holling II 型':
+            x, y = state[0], state[1]
+            r, K = self.params['r'], self.params['K']
+            a, h = self.params['a'], self.params['h']
+            e, d = self.params['e'], self.params['d']
+            denom = 1.0 + a * h * x
+            dxdt = r * x * (1.0 - x / K) - (a * x * y) / denom
+            dydt = (e * a * x * y) / denom - d * y
+            return [dxdt, dydt]
+
+        elif self.current_model == '三物種食物鏈':
+            x, y, z = state[0], state[1], state[2]
+            r, K = self.params['r'], self.params['K']
+            a1, h1, e1, d1 = self.params['a'], self.params['h'], self.params['e'], self.params['d']
+            a2, h2, e2, d2 = self.params['a2'], self.params['h2'], self.params['e2'], self.params['d2']
+            den1 = 1.0 + a1 * h1 * x
+            den2 = 1.0 + a2 * h2 * y
+            dxdt = r * x * (1.0 - x / K) - (a1 * x * y) / den1
+            dydt = (e1 * a1 * x * y) / den1 - d1 * y - (a2 * y * z) / den2
+            dzdt = (e2 * a2 * y * z) / den2 - d2 * z
+            return [dxdt, dydt, dzdt]
+
+    def update(self, event):
+        self.params['x0'] = float(document.getElementById("slider-x0").value)
+        self.params['y0'] = float(document.getElementById("slider-y0").value)
+        self.params['z0'] = float(document.getElementById("slider-z0").value)
+        p1 = float(document.getElementById("slider-p1").value)
+        p2 = float(document.getElementById("slider-p2").value)
+        self.params['alpha'] = p1
+        self.params['r'] = p1
+        self.params['beta'] = p2
+        self.params['a'] = p2
+        self.params['K'] = float(document.getElementById("slider-K").value)
+        self.params['h'] = float(document.getElementById("slider-h").value)
+
+        t_span = (0, self.params['t_max'])
+        t_eval = np.linspace(0, self.params['t_max'], 2000)
+
+        if self.current_model == '三物種食物鏈':
+            y0_vec = [self.params['x0'], self.params['y0'], self.params['z0']]
+        else:
+            y0_vec = [self.params['x0'], self.params['y0']]
+
+        sol = solve_ivp(
+            self._system_equations, t_span, y0_vec,
+            t_eval=t_eval, method='RK45', max_step=0.2
+        )
+
+        self.ax_time.clear()
+
+        if not sol.success:
+            self.ax_time.text(0.5, 0.5, "Numerical Integration Failed (Diverged)", ha='center', color='red')
+            display(self.fig, target="plot-area", append=False)
+            return
+
+        t = sol.t
+        x = sol.y[0]
+        y = sol.y[1]
+
+        self.ax_time.plot(t, x, label='Prey ($x$)', color='#00E676', lw=1.8)
+        self.ax_time.plot(t, y, label='Predator ($y$)', color='#FF5252', lw=1.8)
+        if self.current_model == '三物種食物鏈':
+            z = sol.y[2]
+            self.ax_time.plot(t, z, label='Top Predator ($z$)', color='#448AFF', lw=1.8)
+
+        self.ax_time.set_title("Time Series Dynamics $N(t)$", fontsize=12, color='cyan')
+        self.ax_time.set_xlabel("Time ($t$)", color='white')
+        self.ax_time.set_ylabel("Population Density", color='white')
+        self.ax_time.grid(True, linestyle='--', alpha=0.3)
+        self.ax_time.legend(loc='upper right')
+
+        if self.current_model in ['經典 Lotka-Volterra', 'Holling II 型']:
+            if hasattr(self.ax_phase, 'get_zlim'):
                 self.ax_phase.remove()
-                self.ax_phase = self.fig.add_subplot(122, projection='3d')
-                
-                self.ax_phase.plot(x, y, z, color='#FFEA00', lw=1.5, label='3D 動態軌跡')
-                self.ax_phase.scatter(x[0], y[0], z[0], color='green', s=40, label='起點')
-                self.ax_phase.scatter(x[-1], y[-1], z[-1], color='red', s=40, label='終點')
-                
-                self.ax_phase.set_title("3D 相空間 ($x, y, z$)", fontsize=12, color='cyan')
-                self.ax_phase.set_xlabel("獵物 ($x$)", color='white')
-                self.ax_phase.set_ylabel("植食者 ($y$)", color='white')
-                self.ax_phase.set_zlabel("肉食者 ($z$)", color='white')
-                self.ax_phase.grid(True, linestyle='--', alpha=0.3)
-    
-            self.fig.canvas.draw_idle()
-    
-    if __name__ == '__main__':
-        sandbox = EcologicalSandbox()
-        plt.show()
-</script>
+                self.ax_phase = self.fig.add_subplot(122)
+            else:
+                self.ax_phase.clear()
+
+            max_x = max(np.max(x) * 1.2, 10)
+            max_y = max(np.max(y) * 1.2, 10)
+            grid_x, grid_y = np.meshgrid(np.linspace(0.1, max_x, 25), np.linspace(0.1, max_y, 25))
+
+            if self.current_model == '經典 Lotka-Volterra':
+                U = self.params['alpha'] * grid_x - self.params['beta'] * grid_x * grid_y
+                V = self.params['delta'] * grid_x * grid_y - self.params['gamma'] * grid_y
+                model_en = "Lotka-Volterra"
+            else:
+                denom = 1.0 + self.params['a'] * self.params['h'] * grid_x
+                U = self.params['r'] * grid_x * (1.0 - grid_x / self.params['K']) - (self.params['a'] * grid_x * grid_y) / denom
+                V = (self.params['e'] * self.params['a'] * grid_x * grid_y) / denom - self.params['d'] * grid_y
+                model_en = "Holling Type II"
+
+            speed = np.sqrt(U**2 + V**2)
+            speed[speed == 0] = 1.0
+
+            self.ax_phase.streamplot(grid_x, grid_y, U, V, color=np.log(speed + 1), cmap='cool', density=0.8, linewidth=0.6)
+            self.ax_phase.plot(x, y, color='#FFEA00', lw=2.0, label='Trajectory')
+            self.ax_phase.plot(x[0], y[0], 'go', markersize=8, label='Start ($x_0, y_0$)')
+            self.ax_phase.plot(x[-1], y[-1], 'ro', markersize=8, label='End')
+
+            self.ax_phase.set_title(f"Phase Plane ($y$ vs $x$) - {model_en}", fontsize=12, color='cyan')
+            self.ax_phase.set_xlabel("Prey ($x$)", color='white')
+            self.ax_phase.set_ylabel("Predator ($y$)", color='white')
+            self.ax_phase.set_xlim(0, max_x)
+            self.ax_phase.set_ylim(0, max_y)
+            self.ax_phase.grid(True, linestyle='--', alpha=0.3)
+            self.ax_phase.legend(loc='upper right')
+
+        elif self.current_model == '三物種食物鏈':
+            z = sol.y[2]
+            self.ax_phase.remove()
+            self.ax_phase = self.fig.add_subplot(122, projection='3d')
+            self.ax_phase.plot(x, y, z, color='#FFEA00', lw=1.5, label='3D Trajectory')
+            self.ax_phase.scatter(x[0], y[0], z[0], color='green', s=40, label='Start')
+            self.ax_phase.scatter(x[-1], y[-1], z[-1], color='red', s=40, label='End')
+
+            self.ax_phase.set_title("3D Phase Space ($x, y, z$)", fontsize=12, color='cyan')
+            self.ax_phase.set_xlabel("Prey ($x$)", color='white')
+            self.ax_phase.set_ylabel("Herbivore ($y$)", color='white')
+            self.ax_phase.set_zlabel("Carnivore ($z$)", color='white')
+            self.ax_phase.grid(True, linestyle='--', alpha=0.3)
+            self.ax_phase.legend(loc='upper right')
+
+        display(self.fig, target="plot-area", append=False)
+
+sandbox = EcologicalSandbox()
+  </script>
 </body>
 </html>
